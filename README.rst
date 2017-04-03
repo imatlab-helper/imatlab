@@ -14,7 +14,7 @@ with Python 3.5+, and the `MATLAB engine for Python
 installed first.
 
 Install with ``python -mpip install imatlab`` (from PyPI) or ``python -mpip
-install git+https://github.com/anntzer/imatlab`` (from Github); then run
+install git+https://github.com/imatlab/imatlab`` (from Github); then run
 ``python -mimatlab install`` to register the kernel spec.  In the absence of
 administrator rights, the ``--user`` flag should be added to any of these
 commands.
@@ -28,7 +28,7 @@ To use it, run one of::
 
 
 Inline Graphics
----------------------
+---------------
 
 To use Plotly inline graphics in the notebook, the `Plotly MATLAB API
 <https://plot.ly/matlab>`_ must be installed.
@@ -38,9 +38,20 @@ To use Plotly inline graphics in the notebook, the `Plotly MATLAB API
 2. Recursively add the resulting extracted folders to the MATLAB path:
    ``addpath(genpath(<Plotly MATLAB API path>))``.
 3. In MATLAB, run: ``getplotlyoffline('https://cdn.plot.ly/plotly-latest.min.js')``
-   to copy the javascript files.
-4. Set the ``IMATLAB_EXPORT_FIG`` environment variable to use ``fig2plotly`` as
-   described below.
+   to copy the JavaScript files.
+4. Call ``imatlab_export_fig('fig2plotly')`` at the beginning of the notebook.
+
+Other valid values for the exporter (which do not rely on Plotly) are
+``'print-png'`` and ``'print-jpeg'``, which create static images in the
+respective formats.
+
+For further customization, you may override the ``imatlab_export_fig`` function
+(the default version is provided by ``imatlab`` and added to the MATLAB path).
+This function is called with no arguments after each notebook cell is executed,
+while the current directory is temporarily switched to a temporary folder; this
+function should return a cell array of filenames with ``.html``, ``.png``, or
+``.jpg``/``.jpeg`` extension.  The corresponding files, which should have been
+created by the function, will be loaded into the notebook.
 
 
 Environment variables
@@ -54,36 +65,6 @@ Environment variables
 ``IMATLAB_CD``
    If this environment variable is set, the engine's working directory will be
    changed to match the kernel's working directory.
-
-``IMATLAB_EXPORT_FIG``
-   This environment variable can be set to a MATLAB expression, representing
-   a function of one argument (either a quoted function name, or a function
-   handle).  If it is, and the current frontend is a notebook, then, after
-   each input is evaluated, the given function is evaluated for each figure
-   handle, while the current folder is changed to a temporary folder.  Any
-   ``.html``, ``.png`` or ``.jpeg`` file that is created is displayed using
-   IPython's ``display_data`` mechanism (``.html`` files will also trigger the
-   initialization of ``plotly``’s notebook mode.).
-
-   For example, set (e.g., from MATLAB, in ``startup.m``)::
-
-      setenv('IMATLAB_EXPORT_FIG', func2str(@(h) eval([ ...
-         'fig2plotly(h, ''filename'', [tempname(''.''), ''.html''], ', ...
-                       '''offline'', true, ''open'', false); ', ...
-         'close(h);'])));
-
-   to export figures as html with plotly; or set::
-
-     setenv('IMATLAB_EXPORT_FIG', func2str(@(h) eval([ ...
-         'print(h, [tempname(''.''), ''.png''], ''-dpng'')', ...
-         'close(h);'])));
-
-   to export figures as static png files.
-
-   Note the use of ``eval`` to squeeze in two statements in the function handle
-   (export the figure, and close it).
-
-   It may be helpful to wrap such settings in your own helper functions.
 
 ``IMATLAB_CONNECT`` needs to be set outside of MATLAB (as it is checked before
 the connection to the engine is made).  Other environment variables can be set

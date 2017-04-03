@@ -138,6 +138,10 @@ class MatlabKernel(Kernel):
         else:
             self._engine = matlab.engine.start_matlab()
         self._history = MatlabHistory(Path(self._call("prefdir")))
+        self._engine.addpath(
+            str(Path(sys.modules[__name__.split(".")[0]].__file__).
+                with_name("resources")),
+            "-end")
 
     def _send_stream(self, stream, text):
         self.send_response(self.iopub_socket,
@@ -145,9 +149,11 @@ class MatlabKernel(Kernel):
                            {"name": stream, "text": text})
 
     def _send_display_data(self, data, metadata):
+        # ZMQDisplayPublisher normally handles the conversion of `None`
+        # metadata to {}.
         self.send_response(self.iopub_socket,
                            "display_data",
-                           {"data": data, "metadata": metadata})
+                           {"data": data, "metadata": metadata or {}})
 
     def do_execute(
             self, code, silent, store_history=True,
@@ -209,31 +215,18 @@ class MatlabKernel(Kernel):
                 "execution_count": self.execution_count}
 
     def _export_figures(self):
-        if self._has_console_frontend:
-            return
-        if not len(self._call("get", 0., "children")):
-            return
-        exporter = self._call("getenv", "IMATLAB_EXPORT_FIG")
-        if not exporter:
-            return
-        if not self.do_is_complete(exporter)["status"] == "complete":
-            self._send_stream(
-                "stderr", "IMATLAB_EXPORT_FIG does not define a function.")
+        if (self._has_console_frontend
+                or not len(self._call("get", 0., "children"))
+                or not self._call("which", "imatlab_export_fig")):
             return
         with TemporaryDirectory() as tmpdir:
             cwd = self._call("cd")
             try:
                 self._call("cd", tmpdir)
-                self._call(
-                    "eval",
-                    "builtin('arrayfun', {}, builtin('get', 0, 'children'), "
-                            "'UniformOutput', false)"
-                    .format(exporter),
-                    nargout=0)
+                exported = self._engine.imatlab_export_fig()
             finally:
                 self._call("cd", cwd)
-            for path in sorted(Path(tmpdir).iterdir(),
-                               key=lambda path: path.stat().st_ctime):
+            for path in map(Path(tmpdir).joinpath, exported):
                 if path.suffix.lower() == ".html":
                     self._plotly_init_notebook_mode()
                     self._send_display_data(
@@ -243,7 +236,7 @@ class MatlabKernel(Kernel):
                         ipykernel.jsonutil.encode_images(
                             {"image/png": path.read_bytes()}),
                         {})
-                elif path.suffix.lower() == ".jpeg":
+                elif path.suffix.lower() in [".jpeg", ".jpg"]:
                     self._send_display_data(
                         ipykernel.jsonutil.encode_images(
                             {"image/jpeg": path.read_bytes()}),
@@ -310,14 +303,34 @@ class MatlabKernel(Kernel):
     @lru_cache()
     def do_is_complete(self, code):
         with TemporaryDirectory() as tmpdir:
-            Path(tmpdir, "test_complete.m").write_text(code)
-            self._call("eval",
-                       "try, pcode {} -inplace; catch, end".format(tmpdir),
-                       nargout=0)
-            if Path(tmpdir, "test_complete.p").exists():
-                return {"status": "complete"}
-            else:
+            path = Path(tmpdir, "test_complete.m")
+            path.write_text(code)
+            errs = self._call(
+                "eval",
+                "feval(@(e) {{e.message}}, checkcode('-m2', '{}'))"
+                .format(str(path).replace("'", "''")))
+            # 'Invalid syntax': unmatched brackets.
+            # 'Parse error': unmatched keywords.
+            if any(err.startswith(("Invalid syntax at",
+                                   "Parse error at")) for err in errs):
+                return {"status": "invalid"}
+            # `mtree` returns a single node tree on parse error (but not
+            # otherwise -- empty inputs give no nodes, expressions give two
+            # nodes).  Given that we already excluded (some) errors earlier,
+            # this likely means incomplete code.
+            # Using the (non-documented) `mtree` works better than checking
+            # whether `pcode` successfully generates code as `pcode` refuses
+            # to generate code for classdefs with a name not matching the file
+            # name, whereas we actually want to report `classdef foo, end` to
+            # be reported as complete (so that MATLAB errors at evaluation).
+            incomplete = self._call(
+                "eval",
+                "builtin('numel', mtree('{}', '-file').indices) == 1"
+                .format(str(path).replace("'", "''")))
+            if incomplete:
                 return {"status": "incomplete"}
+            else:
+                return {"status": "complete"}
 
     def do_shutdown(self, restart):
         self._call("exit")

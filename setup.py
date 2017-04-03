@@ -7,7 +7,7 @@ if __name__ == "__main__":
           author="Antony Lee",
           version=versioneer.get_version(),
           cmdclass=versioneer.get_cmdclass(),
-          url="https://github.com/anntzer/imatlab",
+          url="https://github.com/imatlab/imatlab",
           license="BSD",
           long_description=open("README.rst").read(),
           classifiers=[
@@ -18,7 +18,8 @@ if __name__ == "__main__":
               "Topic :: System :: Shells",
           ],
           packages=find_packages(include=["imatlab", "imatlab.*"]),
-          package_data={"imatlab": ["templates/matlab.tpl"]},
+          package_data={"imatlab": ["resources/imatlab_export_fig.m",
+                                    "resources/matlab.tpl"]},
           python_requires=">=3.5",
           install_requires=[
               "ipykernel>=4.1",  # Current version of --user install.
